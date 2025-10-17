@@ -723,6 +723,8 @@ class SteamGameRecordingExporter:
         for clip_folder in clip_folders:
             try:
                 existing_file = self.check_converted_exists(clip_folder, output_dir)
+                expected_filename = os.path.basename(self.get_expected_output_filename(clip_folder, output_dir))
+
                 if existing_file:
                     existing_filename = os.path.basename(existing_file)
                     if dry_run:
@@ -737,8 +739,8 @@ class SteamGameRecordingExporter:
                             self.logger.warning(f"[SKIPPED] {existing_filename} - failed to delete source")
                 else:
                     clip_name = os.path.basename(clip_folder)
-                    results['skipped'].append((clip_folder, "No converted file found"))
-                    self.logger.info(f"[SKIPPED] {clip_name} - no converted file found")
+                    results['skipped'].append((clip_folder, f"No converted file found (expected: {expected_filename})"))
+                    self.logger.info(f"[SKIPPED] {clip_name} - expected file not found: {expected_filename} in {output_dir}")
             except Exception as e:
                 error_msg = f"Error checking clip: {str(e)}"
                 results['skipped'].append((clip_folder, error_msg))

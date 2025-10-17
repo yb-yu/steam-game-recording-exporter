@@ -77,4 +77,4 @@ python steamexporter.py --game-id 570 --process-all
 
 ## License
 
-Apache License 2.0
+MIT License

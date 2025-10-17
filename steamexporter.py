@@ -694,7 +694,7 @@ class SteamGameRecordingExporter:
 
         return results
 
-    def cleanup_existing_sources(self, clip_folders: List[str], output_dir: str) -> Dict[str, any]:
+    def cleanup_existing_sources(self, clip_folders: List[str], output_dir: str, dry_run: bool = False) -> Dict[str, any]:
         """
         Check for already-converted clips and delete their source folders.
         This mode does not perform any conversion.
@@ -702,6 +702,7 @@ class SteamGameRecordingExporter:
         Args:
             clip_folders: List of clip folder paths to check
             output_dir: Directory where converted MP4s are stored
+            dry_run: If True, only show what would be deleted without actually deleting
 
         Returns:
             Dict containing cleanup results with 'deleted', 'skipped', and 'total' keys
@@ -716,19 +717,24 @@ class SteamGameRecordingExporter:
             self.logger.warning("No clips to check for cleanup")
             return results
 
-        self.logger.info(f"Checking {len(clip_folders)} clips for cleanup...")
+        mode_str = "DRY RUN - " if dry_run else ""
+        self.logger.info(f"{mode_str}Checking {len(clip_folders)} clips for cleanup...")
 
         for clip_folder in clip_folders:
             try:
                 existing_file = self.check_converted_exists(clip_folder, output_dir)
                 if existing_file:
                     existing_filename = os.path.basename(existing_file)
-                    if self.delete_source_folder(clip_folder):
+                    if dry_run:
                         results['deleted'].append(clip_folder)
-                        self.logger.info(f"[DELETED] {existing_filename} - source folder removed")
+                        self.logger.info(f"[WOULD DELETE] {existing_filename} - source folder would be removed")
                     else:
-                        results['skipped'].append((clip_folder, "Failed to delete source"))
-                        self.logger.warning(f"[SKIPPED] {existing_filename} - failed to delete source")
+                        if self.delete_source_folder(clip_folder):
+                            results['deleted'].append(clip_folder)
+                            self.logger.info(f"[DELETED] {existing_filename} - source folder removed")
+                        else:
+                            results['skipped'].append((clip_folder, "Failed to delete source"))
+                            self.logger.warning(f"[SKIPPED] {existing_filename} - failed to delete source")
                 else:
                     clip_name = os.path.basename(clip_folder)
                     results['skipped'].append((clip_folder, "No converted file found"))
@@ -761,6 +767,7 @@ Examples:
   %(prog)s --workers 4                     # Use 4 worker processes
   %(prog)s --delete-source                 # Delete source folders after export
   %(prog)s --cleanup-only                  # Only delete source for already-exported recordings
+  %(prog)s --cleanup-only --dry-run        # Preview what would be deleted without actually deleting
         """)
 
     parser.add_argument('--list-clips', action='store_true',
@@ -785,6 +792,8 @@ Examples:
                        help='Delete original Steam clip folders after successful conversion')
     parser.add_argument('--cleanup-only', action='store_true',
                        help='Only delete source folders for already-converted clips (no conversion)')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Show what would be deleted without actually deleting (use with --cleanup-only)')
 
     args = parser.parse_args()
 
@@ -878,18 +887,24 @@ Examples:
 
     # Cleanup mode - only delete sources for already-converted clips
     if args.cleanup_only:
-        print(f"🧹 Cleanup mode: Checking {len(clip_folders)} clips for already-converted sources...")
+        mode_msg = "DRY RUN - " if args.dry_run else ""
+        print(f"🧹 {mode_msg}Cleanup mode: Checking {len(clip_folders)} clips for already-converted sources...")
+        if args.dry_run:
+            print("ℹ️  This is a dry run. No files will be deleted.")
         print()
 
         start_time = datetime.now()
 
-        results = exporter.cleanup_existing_sources(clip_folders, output_dir)
+        results = exporter.cleanup_existing_sources(clip_folders, output_dir, dry_run=args.dry_run)
 
         end_time = datetime.now()
 
         # Print summary
         print(f"\n✅ Cleanup completed in {end_time - start_time}")
-        print(f"📊 Results: {len(results['deleted'])}/{results['total']} source folders deleted")
+        if args.dry_run:
+            print(f"📊 Results: {len(results['deleted'])}/{results['total']} source folders WOULD BE deleted")
+        else:
+            print(f"📊 Results: {len(results['deleted'])}/{results['total']} source folders deleted")
 
         if results['skipped']:
             print(f"⏭️  Skipped: {len(results['skipped'])}/{results['total']}")
@@ -898,7 +913,11 @@ Examples:
                 print(f"  • {os.path.basename(clip_folder)}: {reason}")
 
         if results['deleted']:
-            print(f"\n🎉 Successfully cleaned up {len(results['deleted'])} source folders!")
+            if args.dry_run:
+                print(f"\n💡 {len(results['deleted'])} source folders would be cleaned up!")
+                print("   Run without --dry-run to actually delete them.")
+            else:
+                print(f"\n🎉 Successfully cleaned up {len(results['deleted'])} source folders!")
 
         return 0
 

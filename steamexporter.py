@@ -391,7 +391,8 @@ class SteamGameRecordingExporter:
         game_id = parts[1] if len(parts) >= 2 else "Unknown"
         game_name = self.get_game_name(game_id)
 
-        base_filename = f"{game_name}_{formatted_date}"
+        # Sanitize game name to match what would be saved
+        base_filename = f"{self.sanitize_filename(game_name)}_{formatted_date}"
         # Get the exact filename (without checking for uniqueness)
         return os.path.join(output_dir, f"{base_filename}.mp4")
 

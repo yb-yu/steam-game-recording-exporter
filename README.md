@@ -28,7 +28,7 @@ cd steam-game-recording-exporter
 pip install .
 ```
 
-**Requirements:** Python 3.7+
+**Requirements:** Python 3.9+
 
 ## Usage
 

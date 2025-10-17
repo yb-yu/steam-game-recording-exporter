@@ -4,18 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "steam-game-recording-exporter"
-version = "1.0.0"
-authors = [
-    {name = "yb-yu"}
-]
+version = "1.0.1"
+authors = [{ name = "yb-yu" }]
 description = "Export Steam game recordings to MP4 format"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 keywords = ["steam", "recording", "video", "exporter"]
-dependencies = [
-    "imageio-ffmpeg",
-    "requests",
-]
+dependencies = ["imageio-ffmpeg", "requests"]
 
 [project.urls]
 Homepage = "https://github.com/yb-yu/steam-game-recording-exporter"

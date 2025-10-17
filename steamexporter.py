@@ -19,7 +19,7 @@ import subprocess
 import concurrent.futures
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import Optional
 import xml.etree.ElementTree as ET
 
 try:
@@ -77,7 +77,7 @@ class SteamGameRecordingExporter:
         )
         self.logger = logging.getLogger(__name__)
 
-    def auto_detect_steam_paths(self) -> List[str]:
+    def auto_detect_steam_paths(self) -> list[str]:
         """
         Auto-detect Steam installation paths across different operating systems.
 
@@ -244,7 +244,7 @@ class SteamGameRecordingExporter:
             self._custom_record_cache[userdata_dir] = None
             return None
 
-    def find_session_mpd(self, clip_folder: str) -> List[str]:
+    def find_session_mpd(self, clip_folder: str) -> list[str]:
         """Find all session.mpd files in a clip folder"""
         session_mpd_files = []
         for root, _, files in os.walk(clip_folder):
@@ -253,7 +253,7 @@ class SteamGameRecordingExporter:
         return session_mpd_files
 
     def get_clip_folders(self, userdata_path: str, steam_id: str = None,
-                        media_type: str = "all", game_id: str = None) -> List[str]:
+                        media_type: str = "all", game_id: str = None) -> list[str]:
         """
         Get list of clip folders based on specified filters.
 
@@ -430,7 +430,7 @@ class SteamGameRecordingExporter:
             import shutil
             if os.path.exists(clip_folder):
                 # Double-check this is a Steam clip folder (safety check)
-                if any(f.endswith('.m4s') or f == 'session.mpd' for root, dirs, files in os.walk(clip_folder) for f in files):
+                if any(f.endswith('.m4s') or f == 'session.mpd' for _, _, files in os.walk(clip_folder) for f in files):
                     shutil.rmtree(clip_folder)
                     self.logger.info(f"Deleted source folder: {clip_folder}")
                     return True
@@ -442,7 +442,7 @@ class SteamGameRecordingExporter:
             self.logger.error(f"Failed to delete source folder {clip_folder}: {e}")
             return False
 
-    def process_single_clip(self, clip_folder: str, output_dir: str, delete_source: bool = False) -> Tuple[bool, str]:
+    def process_single_clip(self, clip_folder: str, output_dir: str, delete_source: bool = False) -> tuple[bool, str]:
         """
         Process a single Steam clip folder and convert to MP4.
 
@@ -632,7 +632,7 @@ class SteamGameRecordingExporter:
         except Exception as e:
             return False, f"Error processing {clip_folder}: {str(e)}"
 
-    def process_clips_batch(self, clip_folders: List[str], output_dir: str, delete_source: bool = False) -> Dict[str, any]:
+    def process_clips_batch(self, clip_folders: list[str], output_dir: str, delete_source: bool = False) -> dict[str, any]:
         """
         Process multiple clip folders concurrently using multiprocessing.
 
@@ -695,7 +695,7 @@ class SteamGameRecordingExporter:
 
         return results
 
-    def cleanup_existing_sources(self, clip_folders: List[str], output_dir: str, dry_run: bool = False) -> Dict[str, any]:
+    def cleanup_existing_sources(self, clip_folders: list[str], output_dir: str, dry_run: bool = False) -> dict[str, any]:
         """
         Check for already-converted clips and delete their source folders.
         This mode does not perform any conversion.

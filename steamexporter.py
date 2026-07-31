@@ -18,7 +18,7 @@ import platform
 import subprocess
 import concurrent.futures
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import xml.etree.ElementTree as ET
 
@@ -319,8 +319,16 @@ class SteamGameRecordingExporter:
         clip_folders.sort(key=self.extract_datetime_from_folder_name, reverse=True)
         return clip_folders
 
-    def extract_datetime_from_folder_name(self, folder_path: str) -> datetime:
-        """Extract datetime from folder name"""
+    def parse_recorded_datetime(self, folder_path: str) -> Optional[datetime]:
+        """
+        Parse the recording datetime encoded in a clip folder name.
+
+        Steam names clip folders like 'clip_<gameid>_<YYYYMMDD>_<HHMMSS>', where the
+        trailing date/time is local time at the moment the clip was recorded.
+
+        Returns:
+            Optional[datetime]: Naive local datetime, or None if it cannot be parsed
+        """
         folder_name = os.path.basename(folder_path)
         parts = folder_name.split('_')
         if len(parts) >= 3:
@@ -329,7 +337,112 @@ class SteamGameRecordingExporter:
                 return datetime.strptime(datetime_str, "%Y%m%d%H%M%S")
             except ValueError:
                 pass
-        return datetime.min
+        return None
+
+    def extract_datetime_from_folder_name(self, folder_path: str) -> datetime:
+        """Extract datetime from folder name"""
+        return self.parse_recorded_datetime(folder_path) or datetime.min
+
+    def set_windows_creation_time(self, file_path: str, dt: datetime) -> bool:
+        """Set the Windows creation time (the 'Date created' column) of a file"""
+        import ctypes
+        from ctypes import wintypes
+
+        # Windows FILETIME: 100-nanosecond intervals since 1601-01-01 UTC
+        filetime = int(dt.timestamp() * 10_000_000) + 116_444_736_000_000_000
+        creation_time = wintypes.FILETIME(filetime & 0xFFFFFFFF, filetime >> 32)
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        kernel32.CreateFileW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE
+        ]
+
+        FILE_WRITE_ATTRIBUTES = 0x0100
+        OPEN_EXISTING = 3
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+        handle = kernel32.CreateFileW(
+            file_path, FILE_WRITE_ATTRIBUTES, 0, None, OPEN_EXISTING, 0, None
+        )
+        if handle == INVALID_HANDLE_VALUE:
+            self.logger.warning(f"Could not open {file_path} to set creation time")
+            return False
+
+        try:
+            return bool(kernel32.SetFileTime(handle, ctypes.byref(creation_time), None, None))
+        finally:
+            kernel32.CloseHandle(handle)
+
+    def set_macos_creation_time(self, file_path: str, dt: datetime) -> bool:
+        """Set the macOS creation time (Finder's 'Date Created' column) of a file"""
+        import ctypes
+        import ctypes.util
+
+        class Timespec(ctypes.Structure):
+            _fields_ = [('tv_sec', ctypes.c_int64), ('tv_nsec', ctypes.c_int64)]
+
+        class Attrlist(ctypes.Structure):
+            _fields_ = [
+                ('bitmapcount', ctypes.c_ushort),
+                ('reserved', ctypes.c_uint16),
+                ('commonattr', ctypes.c_uint32),
+                ('volattr', ctypes.c_uint32),
+                ('dirattr', ctypes.c_uint32),
+                ('fileattr', ctypes.c_uint32),
+                ('forkattr', ctypes.c_uint32),
+            ]
+
+        ATTR_BIT_MAP_COUNT = 5
+        ATTR_CMN_CRTIME = 0x00000200
+
+        libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+        libc.setattrlist.restype = ctypes.c_int
+        libc.setattrlist.argtypes = [
+            ctypes.c_char_p, ctypes.POINTER(Attrlist),
+            ctypes.c_void_p, ctypes.c_size_t, ctypes.c_ulong
+        ]
+
+        attrs = Attrlist(bitmapcount=ATTR_BIT_MAP_COUNT, commonattr=ATTR_CMN_CRTIME)
+        crtime = Timespec(tv_sec=int(dt.timestamp()), tv_nsec=0)
+
+        result = libc.setattrlist(
+            os.fsencode(file_path), ctypes.byref(attrs),
+            ctypes.byref(crtime), ctypes.sizeof(crtime), 0
+        )
+        if result != 0:
+            errno = ctypes.get_errno()
+            self.logger.warning(
+                f"Could not set creation time on {file_path}: {os.strerror(errno)}"
+            )
+            return False
+        return True
+
+    def apply_recorded_timestamp(self, file_path: str, recorded_at: datetime):
+        """
+        Stamp an exported file with the time the clip was recorded.
+
+        Sets the modification/access times on every platform, plus the creation
+        time on Windows and macOS, so the exported MP4 sorts by recording time
+        instead of export time. Linux has no API for setting a file's birth
+        time, so modification time is all that can be set there.
+        """
+        try:
+            epoch = recorded_at.timestamp()
+            os.utime(file_path, (epoch, epoch))
+
+            current_os = platform.system()
+            if current_os == "Windows":
+                self.set_windows_creation_time(file_path, recorded_at)
+            elif current_os == "Darwin":
+                self.set_macos_creation_time(file_path, recorded_at)
+
+            self.logger.info(
+                f"Timestamped {os.path.basename(file_path)} as {recorded_at.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+        except Exception as e:
+            self.logger.warning(f"Could not set recorded timestamp on {file_path}: {e}")
 
     def sanitize_filename(self, filename: str) -> str:
         """Sanitize filename by replacing invalid characters"""
@@ -378,15 +491,8 @@ class SteamGameRecordingExporter:
         folder_basename = os.path.basename(clip_folder)
         parts = folder_basename.split('_')
 
-        if len(parts) >= 3:
-            try:
-                datetime_str = parts[-2] + parts[-1]
-                dt_obj = datetime.strptime(datetime_str, "%Y%m%d%H%M%S")
-                formatted_date = dt_obj.strftime("%Y-%m-%d_%H-%M-%S")
-            except ValueError:
-                formatted_date = "UnknownDate"
-        else:
-            formatted_date = "UnknownDate"
+        recorded_at = self.parse_recorded_datetime(clip_folder)
+        formatted_date = recorded_at.strftime("%Y-%m-%d_%H-%M-%S") if recorded_at else "UnknownDate"
 
         game_id = parts[1] if len(parts) >= 2 else "Unknown"
         game_name = self.get_game_name(game_id)
@@ -554,15 +660,8 @@ class SteamGameRecordingExporter:
                 folder_basename = os.path.basename(clip_folder)
                 parts = folder_basename.split('_')
 
-                if len(parts) >= 3:
-                    try:
-                        datetime_str = parts[-2] + parts[-1]
-                        dt_obj = datetime.strptime(datetime_str, "%Y%m%d%H%M%S")
-                        formatted_date = dt_obj.strftime("%Y-%m-%d_%H-%M-%S")
-                    except ValueError:
-                        formatted_date = "UnknownDate"
-                else:
-                    formatted_date = "UnknownDate"
+                recorded_at = self.parse_recorded_datetime(clip_folder)
+                formatted_date = recorded_at.strftime("%Y-%m-%d_%H-%M-%S") if recorded_at else "UnknownDate"
 
                 game_id = parts[1] if len(parts) >= 2 else "Unknown"
                 game_name = self.get_game_name(game_id)
@@ -579,14 +678,24 @@ class SteamGameRecordingExporter:
                     '-i', concatenated_audio.name,
                     '-c', 'copy',
                     '-shortest',  # Handle duration mismatches
-                    output_file
                 ]
+
+                # Embed the recording time so players/media libraries show it
+                if recorded_at:
+                    utc_recorded_at = recorded_at.astimezone(timezone.utc)
+                    cmd += ['-metadata', f"creation_time={utc_recorded_at.strftime('%Y-%m-%dT%H:%M:%SZ')}"]
+
+                cmd.append(output_file)
 
                 self.logger.info(f"FFmpeg command: {' '.join(cmd)}")
                 subprocess.run(cmd, check=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
                 # Verify output file was created
                 if os.path.exists(output_file):
+                    # Stamp the file with the recording time, not the export time
+                    if recorded_at:
+                        self.apply_recorded_timestamp(output_file, recorded_at)
+
                     file_size = os.path.getsize(output_file)
                     self.logger.info(f"Output file created successfully: {output_file} ({file_size} bytes)")
                     return True, f"Successfully converted: {os.path.basename(output_file)}"

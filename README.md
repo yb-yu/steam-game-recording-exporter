@@ -76,6 +76,13 @@ python steamexporter.py --game-id 570 --process-all
 | `--delete-source` | Delete original files after export |
 | `--cleanup-only` | Delete sources for already-exported clips |
 
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest -q
+```
+
 ## License
 
 MIT License

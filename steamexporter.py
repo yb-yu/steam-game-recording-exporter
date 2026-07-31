@@ -1058,6 +1058,11 @@ class SteamGameRecordingExporter:
 
                 base_filename = f"{game_name}_{formatted_date}"
                 output_file = self.get_unique_filename(output_dir, f"{base_filename}.mp4")
+                pending_output = tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".mp4", dir=temp_dir
+                )
+                pending_output.close()
+                temp_files_to_cleanup.append(pending_output.name)
 
                 self.logger.debug(f"Output file will be: {output_file}")
 
@@ -1076,10 +1081,11 @@ class SteamGameRecordingExporter:
                     utc_recorded_at = recorded_at.astimezone(timezone.utc)
                     cmd += ['-metadata', f"creation_time={utc_recorded_at.strftime('%Y-%m-%dT%H:%M:%SZ')}"]
 
-                cmd.append(output_file)
+                cmd.append(pending_output.name)
 
                 self.logger.debug(f"FFmpeg command: {' '.join(cmd)}")
                 self._run_ffmpeg(cmd, duration, lambda frac: report('mux', frac, "Writing MP4"))
+                os.replace(pending_output.name, output_file)
 
                 # Verify output file was created
                 if os.path.exists(output_file):

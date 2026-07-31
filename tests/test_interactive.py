@@ -246,6 +246,14 @@ class ActiveRecordingTests(unittest.TestCase):
             self.assertTrue(os.path.isdir(folder))
             self.exporter.logger.warning.assert_called_once()
 
+            stale_chunk = os.path.join(
+                folder, "dash", "chunk-stream0-00002.m4s.tmp"
+            )
+            os.utime(stale_chunk, (0, 0))
+            self.assertFalse(self.exporter.is_recording_active(folder))
+            self.assertTrue(self.exporter.delete_source_folder(folder))
+            self.assertFalse(os.path.exists(folder))
+
     def test_chunk_disappearing_during_read_is_skipped_and_temp_is_cleaned(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = self.make_recording(

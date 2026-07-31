@@ -35,7 +35,10 @@ def dash_source(ffmpeg_exe, tmp_path_factory):
 @pytest.fixture
 def make_clip(dash_source, steam_tree):
     def make(folder_name="clip_570_20250102_030405"):
-        clip = steam_tree.add_clip(folder_name, with_session=False)
+        clip = steam_tree.add_clip(
+            folder_name, with_session=False,
+            base=steam_tree.root.parent / "Steam Library With Spaces" / "clips",
+        )
         shutil.copytree(str(dash_source), str(clip / "dash"), dirs_exist_ok=True)
         return clip
 
@@ -95,15 +98,39 @@ def test_invalid_recording_layout_is_reported(
     assert exporter.process_single_clip(str(no_manifest), str(output_dir))[0] is False
 
 
+def test_failed_export_removes_partial_output(
+    exporter, named_games, make_clip, output_dir, monkeypatch
+):
+    clip = make_clip()
+
+    def fail_after_writing(command, *args):
+        with open(command[-1], "wb") as partial:
+            partial.write(b"partial mp4")
+        raise subprocess.CalledProcessError(1, command, stderr="mux failed")
+
+    monkeypatch.setattr(exporter, "_run_ffmpeg", fail_after_writing)
+    success, _ = exporter.process_single_clip(str(clip), str(output_dir))
+
+    assert success is False
+    assert exporter.check_converted_exists(str(clip), str(output_dir)) is None
+    assert clip.exists()
+    assert not (output_dir / ".temp").exists()
+
+
 def test_batch_converts_good_clips_and_collects_failures(
     exporter, named_games, make_clip, steam_tree, tmp_path
 ):
-    good = str(make_clip())
-    bad = str(steam_tree.add_clip("clip_730_20250103_040506", with_session=False))
+    good_path = make_clip()
+    bad_path = steam_tree.add_clip("clip_730_20250103_040506", with_session=False)
+    good, bad = str(good_path), str(bad_path)
     output = tmp_path / "nested" / "exports"
 
-    results = exporter.process_clips_batch([good, bad], str(output))
+    results = exporter.process_clips_batch(
+        [good, bad], str(output), delete_source=True
+    )
 
     assert results["successful"] == [good]
     assert [path for path, _ in results["failed"]] == [bad]
     assert (output / "Dota_2_2025-01-02_03-04-05.mp4").exists()
+    assert not good_path.exists()
+    assert bad_path.exists()

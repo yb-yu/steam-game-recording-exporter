@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -38,7 +39,8 @@ def run_cli(tmp_path):
 def test_help_exits_cleanly(run_cli):
     result = run_cli("--help")
     assert result.returncode == 0
-    assert "--list-clips" in result.stdout
+    plain_output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout)
+    assert "--list-clips" in plain_output
 
 
 def test_list_clips_prints_both_recording_types(run_cli, steam_tree):

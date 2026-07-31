@@ -32,6 +32,23 @@ except ImportError as e:
     sys.exit(1)
 
 
+def force_utf8_console():
+    """Make stdout/stderr tolerate non-ASCII output.
+
+    Console messages contain emoji and game names in any language, while a
+    legacy code page (cp1252, cp949) or a piped stdout would otherwise raise
+    UnicodeEncodeError and abort the run.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding='utf-8', errors='replace')
+        except (ValueError, OSError):
+            pass
+
+
 class SteamGameRecordingExporter:
     """
     Handles Steam path detection, recording discovery, and MP4 conversion.
@@ -59,13 +76,8 @@ class SteamGameRecordingExporter:
         log_file = os.path.join(log_dir, f"{timestamp}.log")
 
         # Create stream handler with proper encoding
-        import io
-        if platform.system() == "Windows":
-            # Force UTF-8 encoding on Windows to handle unicode characters
-            stdout_wrapper = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-            stream_handler = logging.StreamHandler(stdout_wrapper)
-        else:
-            stream_handler = logging.StreamHandler(sys.stdout)
+        force_utf8_console()
+        stream_handler = logging.StreamHandler(sys.stdout)
 
         logging.basicConfig(
             level=logging.INFO,
@@ -606,10 +618,10 @@ class SteamGameRecordingExporter:
 
                 # Additional cleanup for any remaining temp files
                 try:
-                    temp_dir = tempfile.gettempdir()
-                    for filename in os.listdir(temp_dir):
+                    system_temp_dir = tempfile.gettempdir()
+                    for filename in os.listdir(system_temp_dir):
                         if filename.startswith('tmp') and (filename.endswith('.mp4') or filename.endswith('.txt')):
-                            temp_file_path = os.path.join(temp_dir, filename)
+                            temp_file_path = os.path.join(system_temp_dir, filename)
                             try:
                                 # Check if file is older than 1 hour to avoid deleting active files
                                 if os.path.getctime(temp_file_path) < (datetime.now().timestamp() - 3600):
@@ -752,6 +764,8 @@ class SteamGameRecordingExporter:
 
 def main():
     """Main CLI interface for Steam Game Recording Exporter."""
+    force_utf8_console()
+
     print(f"Steam Game Recording Exporter v1.0.0 - Export Steam Recordings to MP4")
     print("=" * 75)
     print()

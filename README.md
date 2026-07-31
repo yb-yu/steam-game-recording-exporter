@@ -9,6 +9,7 @@ Export Steam game recordings to standard MP4 format. Converts Steam's fragmented
 - Lossless conversion with multiprocessing
 - Filter by game, user, or clip type
 - Batch processing with cleanup options
+- Exported files keep the original recording time (file dates and MP4 `creation_time`)
 
 ## Installation
 

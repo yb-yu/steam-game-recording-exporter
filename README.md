@@ -13,7 +13,41 @@ explicitly choose source deletion or run cleanup mode.
 
 ## Quick start
 
-Requires Python 3.9 or newer. With [uv](https://docs.astral.sh/uv/):
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once.
+On Windows, run this in PowerShell, then reopen your terminal:
+
+```powershell
+winget install --id=astral-sh.uv -e
+```
+
+Run the latest published release on Windows, macOS or Linux:
+
+```sh
+uvx --isolated --refresh --from https://github.com/yb-yu/steam-game-recording-exporter/releases/latest/download/steam-game-recording-exporter.tar.gz steamexporter
+```
+
+uv downloads Python if needed and installs the exporter and its dependencies in
+an isolated environment. There is no need to clone the repository or unpack the
+archive. `--refresh` checks for a newer release even when the download URL is
+cached; `--isolated` prevents an older installed tool from taking precedence.
+Append options such as `--list-clips` or `--help` to the command.
+This URL becomes available after the first GitHub release is published.
+
+### Install for repeated use
+
+For a shorter everyday command, install from the latest release:
+
+```sh
+uv tool install --refresh https://github.com/yb-yu/steam-game-recording-exporter/releases/latest/download/steam-game-recording-exporter.tar.gz
+steamexporter
+```
+
+Repeat the install command with `--reinstall` to update. The release page also
+provides a versioned `.whl` and source `.tar.gz` for manual installation.
+
+### Run from source
+
+Requires Python 3.9 or newer, or uv to manage Python:
 
 ```bash
 git clone https://github.com/yb-yu/steam-game-recording-exporter.git
@@ -22,7 +56,7 @@ uv sync
 uv run steamexporter
 ```
 
-With pip:
+With pip, after cloning the repository and entering its directory:
 
 ```bash
 pip install .
@@ -31,8 +65,8 @@ steamexporter
 
 ## Interactive mode
 
-Run `uv run steamexporter` with no options. Use the arrow keys and Enter to
-choose; press `Esc` to go back one step.
+Run the quick-start command or `steamexporter` with no options. Use the arrow
+keys and Enter to choose; press `Esc` to go back one step.
 
 ```text
 Esc: back one step · Ctrl+C: cancel
@@ -107,7 +141,9 @@ uv run steamexporter --cleanup-only --dry-run
 uv run steamexporter --help
 ```
 
-When installed with pip, replace `uv run steamexporter` with `steamexporter`.
+These examples use a source checkout. When installed with `uv tool install` or
+pip, replace `uv run steamexporter` with `steamexporter`. With `uvx`, append the
+options to the full quick-start command.
 The interactive menu needs a real terminal; under Git Bash/mintty, use the
 command-line options instead.
 
@@ -164,6 +200,31 @@ switches, safe folder names, CLI/menu options, and cleanup in both layouts.
 
 Use the Git-ignored `scratchpad/` directory for local investigations and generated
 experiments. Keep reusable regression tests in `tests/`.
+
+## Releasing
+
+1. Update `version` in `pyproject.toml` and `__version__` in `steamexporter.py`,
+   then run `uv lock` to update the local package version in `uv.lock`.
+2. Merge the change into `main` after the Tests and Release checks pass.
+3. Tag that commit with its version and push the tag, for example:
+
+   ```sh
+   git switch main
+   git pull --ff-only
+   git tag -a v1.2.0 -m "Release v1.2.0"
+   git push origin v1.2.0
+   ```
+
+The Release workflow accepts stable `vMAJOR.MINOR.PATCH` tags that match the
+package version. It reruns the full test matrix, builds packages, and checks the
+installed CLI on Linux, macOS and Windows before publishing. Branch and pull
+request runs build and check packages without publishing a release.
+
+Each GitHub release includes generated release notes, a source commit link, a
+versioned wheel and source archive, and an identical source archive named
+`steam-game-recording-exporter.tar.gz` for the stable `latest/download` URL.
+Packages are attached to GitHub Releases; this workflow does not publish to PyPI.
+Published tags and assets are not overwritten; ship a new version for corrections.
 
 ## License
 

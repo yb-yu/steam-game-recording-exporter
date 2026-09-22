@@ -14,18 +14,20 @@ cleanup mode.
 
 ## Quick start
 
-Run the latest release with [uv](https://docs.astral.sh/uv/getting-started/installation/)
+Install with [uv](https://docs.astral.sh/uv/getting-started/installation/)
 on Windows, Linux or macOS:
 
 ```sh
-uvx --from steam-game-recording-exporter@latest steamexporter
+uv tool install steam-game-recording-exporter
+steamexporter
 ```
 
 uv manages Python and dependencies. Available after the first PyPI release.
+Update with `uv tool upgrade steam-game-recording-exporter`.
 
 ## Interactive mode
 
-Run the quick-start command with no extra options in an interactive terminal.
+Run `steamexporter` in an interactive terminal.
 Use arrow keys and Enter to select, `Esc` to go back, and `Ctrl+C` to cancel.
 
 ```text
@@ -58,12 +60,13 @@ deletion are off by default each run.
 
 ## Command line mode
 
-Pass recording filters and export settings directly by appending options to the
-quick-start command:
+Pass the same recording filters and export settings directly:
 
-- `--list-clips` — list available recordings.
-- `--process-all --group-by-game --output ~/Videos` — export into game folders.
-- `--help` — show all options.
+```sh
+steamexporter --list-clips
+steamexporter --process-all --group-by-game --output ~/Videos
+steamexporter --help
+```
 
 Both modes detect existing exports in flat and game-folder layouts without
 moving them. Active background recordings are skipped; stop the game and wait

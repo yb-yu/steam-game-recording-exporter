@@ -150,13 +150,12 @@ jobs:
           cat > release-notes.md <<EOF
           Source commit: [${RELEASE_COMMIT}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${RELEASE_COMMIT})
 
-          Run this release with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+          Install this release with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
           \`\`\`sh
-          uvx --from steam-game-recording-exporter==${RELEASE_VERSION} steamexporter
+          uv tool install steam-game-recording-exporter==${RELEASE_VERSION}
+          steamexporter
           \`\`\`
-
-          Latest: \`uvx --from steam-game-recording-exporter@latest steamexporter\`.
           EOF
           gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes \
             --title "$RELEASE_TAG" --notes-file release-notes.md

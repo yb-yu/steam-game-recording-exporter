@@ -54,9 +54,9 @@ jobs:
               output.write(f"version={version}\ncommit={commit}\n")
           PY
       - name: Build wheel and source archive
-        run: |
-          uv build --no-sources
-          cp dist/*.tar.gz dist/steam-game-recording-exporter.tar.gz
+        run: uv build --no-sources
+      - name: Check package metadata and README
+        run: uvx --from twine==7.0.0 twine check --strict dist/*
       - uses: actions/upload-artifact@v7
         with:
           name: distributions
@@ -109,9 +109,26 @@ jobs:
               print(f"Verified {artifact.name}: {result}", flush=True)
           PY
 
-  publish:
+  publish-pypi:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [test, build, smoke]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/steam-game-recording-exporter
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, publish-pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -120,23 +137,25 @@ jobs:
         with:
           name: distributions
           path: dist
+      - name: Add stable download filename
+        run: cp dist/*.tar.gz dist/steam-game-recording-exporter.tar.gz
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
           RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
         run: |
           cat > release-notes.md <<EOF
           Source commit: [${RELEASE_COMMIT}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${RELEASE_COMMIT})
 
-          Run this release with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+          Install this release with [uv](https://docs.astral.sh/uv/getting-started/installation/):
 
           \`\`\`sh
-          uvx --isolated --from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/steam-game-recording-exporter.tar.gz steamexporter
+          uv tool install steam-game-recording-exporter==${RELEASE_VERSION}
+          steamexporter
           \`\`\`
-
-          To run the latest release, use the same command with \`--refresh\` and replace \`download/${RELEASE_TAG}\` with \`latest/download\`.
           EOF
           gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes \
             --title "$RELEASE_TAG" --notes-file release-notes.md

@@ -76,7 +76,7 @@ def test_many_fragments_are_copied_in_order_with_one_source_open(
     assert peak_open == 1 and source_reads == 10002 and open_count == 0
     assert progress == sorted(progress) and progress[-1] == 1.0
     assert "video_chunks=5000 audio_chunks=5000 input_files=10002 mode=sequential" in caplog.text
-    assert clip.exists() and not (output_dir / ".temp").exists()
+    assert clip.exists() and not list(output_dir.glob(".temp*"))
 
 
 @pytest.mark.parametrize("error,expected", [(FileNotFoundError, None), (PermissionError, False)])
@@ -127,3 +127,31 @@ def test_full_output_disk_removes_incomplete_stream_and_keeps_source(
     exporter._run_ffmpeg.assert_not_called()
     assert clip.exists()
     assert list(output_dir.iterdir()) == []
+
+
+def test_finishing_another_clip_preserves_active_temp_directory(
+    exporter, named_games, steam_tree, output_dir, monkeypatch
+):
+    first = steam_tree.add_clip("clip_570_20250102_030405")
+    second = steam_tree.add_clip("clip_730_20250103_040506")
+    real_temporary_file = steamexporter.tempfile.NamedTemporaryFile
+    finished_second = False
+
+    def finish_other_clip_before_first_write(*args, **kwargs):
+        nonlocal finished_second
+        if not finished_second:
+            finished_second = True
+            # Deterministically interleave cleanup with the first clip's startup.
+            success, message = exporter.process_single_clip(str(second), str(output_dir))
+            assert success, message
+        return real_temporary_file(*args, **kwargs)
+
+    monkeypatch.setattr(steamexporter.tempfile, "NamedTemporaryFile", finish_other_clip_before_first_write)
+    monkeypatch.setattr(exporter, "_run_ffmpeg", lambda command, *args: Path(command[-1]).write_bytes(b"mp4"))
+
+    success, message = exporter.process_single_clip(str(first), str(output_dir))
+
+    assert success, message
+    assert finished_second and first.exists() and second.exists()
+    assert len(list(output_dir.glob("*.mp4"))) == 2
+    assert not list(output_dir.glob(".temp*"))

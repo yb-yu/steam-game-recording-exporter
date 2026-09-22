@@ -3,6 +3,9 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
+
+import pytest
 
 
 def test_sanitizes_platform_unsafe_characters(exporter):
@@ -48,3 +51,29 @@ def test_game_name_cache_is_saved_and_reloaded(exporter, named_games, config_dir
 
     fresh = type(exporter)(max_workers=1)
     assert fresh.game_ids == {"570": "Dota 2"}
+    assert fresh.group_by_game is False
+
+
+@pytest.mark.parametrize("game_name, folder", [
+    ("Half-Life: Alyx", "Half-Life_Alyx"),
+    ("검은사막", "검은사막"),
+    ("../Escape", ".._Escape"),
+    ("..", "Game_570"),
+    ("CON", "Game_570"),
+    ("nul.txt", "Game_570"),
+    ("Game.", "Game"),
+    ("???", "Game_570"),
+    ("Game\x01Name", "Game_Name"),
+])
+def test_game_folder_is_a_safe_component(exporter, output_dir, monkeypatch, game_name, folder):
+    exporter.group_by_game = True
+    monkeypatch.setattr(exporter, "get_game_name", lambda _: game_name)
+    clip = os.path.join("anywhere", "clip_570_20250102_030405")
+
+    expected = Path(exporter.get_expected_output_filename(clip, str(output_dir)))
+
+    assert expected.parent == output_dir / folder
+    assert expected.parent.parent == output_dir
+    assert str(expected) == exporter.get_unique_filename(
+        str(output_dir / folder), f"{game_name}_2025-01-02_03-04-05.mp4"
+    )

@@ -58,6 +58,7 @@ Esc: back one step · Ctrl+C: cancel
   Pick individually
 
 ? Output directory  C:\Users\you\Desktop
+? Group exported videos into game folders? No
 ? How many parallel workers? (HDD source: 1-2, SSD source: 2-4)
 ❯ 2 (current default)
   4
@@ -96,6 +97,9 @@ uv run steamexporter --process-all --workers 2 --output ~/Videos
 # Export one game
 uv run steamexporter --process-all --game-id 570
 
+# Export into a separate subfolder for each game
+uv run steamexporter --process-all --group-by-game --output ~/Videos
+
 # Preview cleanup without deleting anything
 uv run steamexporter --cleanup-only --dry-run
 
@@ -107,10 +111,25 @@ When installed with pip, replace `uv run steamexporter` with `steamexporter`.
 The interactive menu needs a real terminal; under Git Bash/mintty, use the
 command-line options instead.
 
+By default, exports go directly into the output directory. `--group-by-game`
+saves new videos under a game subfolder instead, for example
+`~/Videos/Dota_2/Dota_2_2025-01-02_03-04-05.mp4`. Folder names use the same
+character replacements as filenames; names that cannot be used as folders
+fall back to `Game_<AppID>`. The menu offers the same choice. Grouping is off
+by default for each run and is not saved as a preference.
+
+Duplicate detection and `--cleanup-only` check both the output directory and
+the corresponding game subfolder, including numbered filenames, regardless of
+the grouping option. Switching layouts leaves existing exports in place and
+skips recordings already exported in either layout. Other subfolders are not
+searched.
+
 ## Conversion and logs
 
-Fragments are copied in filename order into temporary video/audio streams under
-`<output>/.temp`, then remuxed without re-encoding. Only one source fragment is
+Fragments are copied in filename order into temporary video/audio streams in a
+separate `<output>/.temp-*` directory for each recording, then remuxed without
+re-encoding. Separate directories prevent one worker's cleanup from interrupting
+another recording. Only one source fragment is
 open at a time, using 4 MiB copy blocks, so recordings with thousands of fragments
 do not exhaust FFmpeg's open-file limit. Single-session recordings need one
 FFmpeg pass; multi-session recordings also join their session streams.
@@ -140,6 +159,8 @@ The test matrix covers Python 3.9 and current Python on Ubuntu, macOS and
 Windows. Tests cover 10,000 fragments, bounded source reads, partial-output
 cleanup and complete video/audio packet preservation with concurrent exports.
 On POSIX, the integration test lowers the child process's open-file limit to 64.
+Grouped exports are tested with multiple games and parallel workers, layout
+switches, safe folder names, CLI/menu options, and cleanup in both layouts.
 
 Use the Git-ignored `scratchpad/` directory for local investigations and generated
 experiments. Keep reusable regression tests in `tests/`.

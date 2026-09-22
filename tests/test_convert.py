@@ -66,13 +66,15 @@ def test_exports_a_playable_timestamped_mp4(
         2025, 1, 2, 3, 4, 5
     )
     assert clip.exists()
-    assert not (output_dir / ".temp").exists()
+    assert not list(output_dir.glob(".temp*"))
 
 
-def test_second_export_is_skipped(exporter, named_games, make_clip, output_dir):
+@pytest.mark.parametrize("grouped", [False, True])
+def test_second_export_is_skipped(exporter, named_games, make_clip, output_dir, grouped):
     clip = make_clip()
     assert exporter.process_single_clip(str(clip), str(output_dir))[0]
     first_pass = sorted(os.listdir(str(output_dir)))
+    exporter.group_by_game = grouped
 
     success, message = exporter.process_single_clip(str(clip), str(output_dir))
 
@@ -80,9 +82,73 @@ def test_second_export_is_skipped(exporter, named_games, make_clip, output_dir):
     assert sorted(os.listdir(str(output_dir))) == first_pass
 
 
-def test_delete_source_only_after_an_export_exists(exporter, named_games, make_clip, output_dir):
+def test_grouped_batch_exports_multiple_games_and_survives_layout_switch(
+    exporter, named_games, make_clip, output_dir, ffmpeg_exe, monkeypatch
+):
+    clips = [make_clip(), make_clip("clip_730_20250103_040506"),
+             make_clip("clip_570_20250104_040506")]
+    exporter.group_by_game = True
+
+    results = exporter.process_clips_batch(
+        [str(clip) for clip in clips], str(output_dir), show_progress=False
+    )
+
+    assert sorted(results["successful"]) == sorted(str(clip) for clip in clips)
+    assert results["failed"] == [] and results["skipped"] == []
+    outputs = sorted(output_dir.glob("*/*.mp4"))
+    assert {path.relative_to(output_dir).as_posix() for path in outputs} == {
+        "Dota_2/Dota_2_2025-01-02_03-04-05.mp4",
+        "Dota_2/Dota_2_2025-01-04_04-05-06.mp4",
+        "Counter-Strike_2/Counter-Strike_2_2025-01-03_04-05-06.mp4",
+    }
+    for output in outputs:
+        subprocess.run(
+            [ffmpeg_exe, "-v", "error", "-i", str(output), "-f", "null", "-"],
+            check=True, capture_output=True,
+        )
+    assert not list(output_dir.glob(".temp*"))
+
+    def unexpected_ffmpeg(*args):
+        pytest.fail("an existing grouped export should not be converted again")
+
+    monkeypatch.setattr(exporter, "_run_ffmpeg", unexpected_ffmpeg)
+    for grouped in (True, False):
+        exporter.group_by_game = grouped
+        success, message = exporter.process_single_clip(str(clips[0]), str(output_dir))
+        assert success and "Already converted (skipped)" in message
+    assert sorted(output_dir.glob("*/*.mp4")) == outputs
+    assert list(output_dir.glob("*.mp4")) == []
+
+
+def test_cli_group_by_game_exports_to_game_folder(run_cli, dash_source, steam_tree, output_dir):
+    clip = steam_tree.add_clip("clip_570_20250102_030405", with_session=False)
+    shutil.copytree(str(dash_source), str(clip / "dash"), dirs_exist_ok=True)
+
+    result = run_cli(
+        "--userdata-path", str(steam_tree), "--output", str(output_dir),
+        "--process-all", "--group-by-game", "--workers", "1", "--no-progress",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (output_dir / "Dota_2" / "Dota_2_2025-01-02_03-04-05.mp4").is_file()
+    assert list(output_dir.glob("*.mp4")) == []
+    assert clip.exists()
+
+    cleanup = run_cli(
+        "--userdata-path", str(steam_tree), "--output", str(output_dir),
+        "--cleanup-only", "--dry-run", "--no-progress",
+    )
+    assert cleanup.returncode == 0, cleanup.stdout + cleanup.stderr
+    assert "WOULD BE deleted" in cleanup.stdout
+    assert clip.exists()
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_delete_source_only_after_an_export_exists(exporter, named_games, make_clip, output_dir, grouped):
     clip = make_clip()
+    exporter.group_by_game = grouped
     assert exporter.process_single_clip(str(clip), str(output_dir))[0]
+    exporter.group_by_game = not grouped
 
     success, message = exporter.process_single_clip(
         str(clip), str(output_dir), delete_source=True
@@ -103,10 +169,12 @@ def test_invalid_recording_layout_is_reported(
     assert exporter.process_single_clip(str(no_manifest), str(output_dir))[0] is False
 
 
+@pytest.mark.parametrize("grouped", [False, True])
 def test_failed_export_removes_partial_output(
-    exporter, named_games, make_clip, output_dir, monkeypatch
+    exporter, named_games, make_clip, output_dir, monkeypatch, grouped
 ):
     clip = make_clip()
+    exporter.group_by_game = grouped
 
     def fail_after_writing(command, *args):
         with open(command[-1], "wb") as partial:
@@ -119,7 +187,7 @@ def test_failed_export_removes_partial_output(
     assert success is False
     assert exporter.check_converted_exists(str(clip), str(output_dir)) is None
     assert clip.exists()
-    assert not (output_dir / ".temp").exists()
+    assert not list(output_dir.glob(".temp*"))
 
 
 def test_batch_converts_good_clips_and_collects_failures(
@@ -245,7 +313,7 @@ print(json.dumps({"limit": limit, "result": result}))
         ], capture_output=True, text=True, timeout=30)
         assert decoded.returncode == 0 and decoded.stderr == "", decoded.stderr
     assert all(clip.exists() for clip in clips)
-    assert not (output_dir / ".temp").exists()
+    assert not list(output_dir.glob(".temp*"))
 
 
 def test_multiple_sessions_preserve_all_frames(exporter, named_games, make_clip, output_dir, ffmpeg_exe):
@@ -258,4 +326,4 @@ def test_multiple_sessions_preserve_all_frames(exporter, named_games, make_clip,
         ffmpeg_exe, "-v", "error", "-i", str(output), "-map", "0:v:0", "-f", "framemd5", "-",
     ], check=True, capture_output=True, text=True)
     assert len([line for line in decoded.stdout.splitlines() if not line.startswith("#")]) == 20
-    assert not (output_dir / ".temp").exists()
+    assert not list(output_dir.glob(".temp*"))

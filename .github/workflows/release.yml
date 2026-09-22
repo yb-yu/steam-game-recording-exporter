@@ -1,0 +1,142 @@
+name: Release
+
+# To release: update the version in pyproject.toml, run uv lock,
+# and merge into main after CI passes. Push a matching vMAJOR.MINOR.PATCH tag
+# from main; all checks must pass before publishing. Use a new version for fixes.
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/tests.yml
+
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      commit: ${{ steps.metadata.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.11.28"
+          python-version: "3.14"
+          enable-cache: false
+      - name: Check release version
+        id: metadata
+        run: |
+          uv run --no-project python - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import tomllib
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          ref = os.environ["GITHUB_REF"]
+          if ref.startswith("refs/tags/"):
+              if not re.fullmatch(r"\d+\.\d+\.\d+", version) or ref != f"refs/tags/v{version}":
+                  raise SystemExit(f"Tag {ref} must match stable package version v{version}")
+          commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\ncommit={commit}\n")
+          PY
+      - name: Build wheel and source archive
+        run: |
+          uv build --no-sources
+          cp dist/*.tar.gz dist/steam-game-recording-exporter.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: distributions
+          path: dist/*
+          if-no-files-found: error
+
+  smoke:
+    name: Packages / ${{ matrix.os }} / Python ${{ matrix.python }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.9"
+          - os: ubuntu-latest
+            python: "3.14"
+          - os: macos-latest
+            python: "3.14"
+          - os: windows-latest
+            python: "3.14"
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.11.28"
+          python-version: ${{ matrix.python }}
+          enable-cache: false
+      - name: Run packaged CLI without a source checkout
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          uv run --no-project python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+
+          for artifact in sorted(Path("dist").iterdir()):
+              command = ["uvx", "--isolated", "--from", str(artifact.resolve()), "steamexporter"]
+              result = subprocess.check_output(command + ["--version"], text=True).strip()
+              expected = "steamexporter " + os.environ["EXPECTED_VERSION"]
+              if result != expected:
+                  raise SystemExit(f"{artifact.name}: expected {expected!r}, got {result!r}")
+              subprocess.run(command + ["--help"], check=True)
+              print(f"Verified {artifact.name}: {result}", flush=True)
+          PY
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [test, build, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          cat > release-notes.md <<EOF
+          Source commit: [${RELEASE_COMMIT}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${RELEASE_COMMIT})
+
+          Run this release with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
+          \`\`\`sh
+          uvx --isolated --from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/steam-game-recording-exporter.tar.gz steamexporter
+          \`\`\`
+
+          To run the latest release, use the same command with \`--refresh\` and replace \`download/${RELEASE_TAG}\` with \`latest/download\`.
+          EOF
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes \
+            --title "$RELEASE_TAG" --notes-file release-notes.md

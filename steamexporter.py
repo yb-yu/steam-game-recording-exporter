@@ -23,6 +23,7 @@ import platform
 import subprocess
 import concurrent.futures
 from datetime import datetime, timezone
+from importlib.metadata import version
 from typing import Any, Callable, Optional
 import xml.etree.ElementTree as ET
 
@@ -48,8 +49,8 @@ try:
     )
 except ImportError as e:
     print(f"Missing required dependency: {e}")
-    print("Please install required packages:")
-    print("pip install imageio-ffmpeg requests typer rich questionary")
+    print("From the project directory, install the exporter and its dependencies:")
+    print("python -m pip install .")
     sys.exit(1)
 
 
@@ -70,7 +71,7 @@ def force_utf8_console():
             pass
 
 
-__version__ = "1.1.0"
+__version__ = version("steam-game-recording-exporter")
 
 
 force_utf8_console()

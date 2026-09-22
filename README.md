@@ -109,13 +109,24 @@ command-line options instead.
 
 ## Conversion and logs
 
-Single-session recordings stream directly from Steam's fragments into the final
-MP4. Multi-session recordings use temporary files under `<output>/.temp`, which
-are removed after the run. Exported files keep the recording time both as their
-file timestamp and as MP4 `creation_time` metadata.
+Fragments are copied in filename order into temporary video/audio streams under
+`<output>/.temp`, then remuxed without re-encoding. Only one source fragment is
+open at a time, using 4 MiB copy blocks, so recordings with thousands of fragments
+do not exhaust FFmpeg's open-file limit. Single-session recordings need one
+FFmpeg pass; multi-session recordings also join their session streams.
+All matching fragments are exported; manifest durations are used only for
+progress, so an incomplete manifest duration does not trim the recording.
+
+Allow disk space for the temporary streams as well as the final MP4 for each
+active worker. Temporary files are removed on success or failure. Exported files
+keep the recording time both as their file timestamp and as MP4 `creation_time`
+metadata.
 
 Logs are written to `%LOCALAPPDATA%\SteamGameRecordingExporter\logs\` on Windows
 or `~/SteamGameRecordingExporter/logs/` on macOS and Linux.
+The file log includes runtime and FFmpeg versions, available open-file limits,
+per-session fragment counts, FFmpeg commands and exit status. `--verbose` also
+prints debug messages to the console; these details are always in the log file.
 
 ## Development
 
@@ -126,7 +137,12 @@ uv build
 ```
 
 The test matrix covers Python 3.9 and current Python on Ubuntu, macOS and
-Windows.
+Windows. Tests cover 10,000 fragments, bounded source reads, partial-output
+cleanup and complete video/audio packet preservation with concurrent exports.
+On POSIX, the integration test lowers the child process's open-file limit to 64.
+
+Use the Git-ignored `scratchpad/` directory for local investigations and generated
+experiments. Keep reusable regression tests in `tests/`.
 
 ## License
 

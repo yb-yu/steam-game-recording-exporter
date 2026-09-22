@@ -275,8 +275,6 @@ class ActiveRecordingTests(unittest.TestCase):
 
             self.assertIsNone(success)
             self.assertIn("changed while FFmpeg was reading", message)
-            ffmpeg_command = self.exporter._run_ffmpeg.call_args.args[0]
-            self.assertTrue(ffmpeg_command[ffmpeg_command.index('-i') + 1].startswith('concatf:'))
             self.assertFalse(os.path.exists(os.path.join(output, ".temp")))
 
     def test_multi_session_recording_keeps_concat_fallback(self):

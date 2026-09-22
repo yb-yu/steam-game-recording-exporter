@@ -9,37 +9,21 @@ cleanup mode.
 
 ## Quick start
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once.
-On Windows, run this in PowerShell, then reopen your terminal:
-
-```powershell
-winget install --id=astral-sh.uv -e
-```
-
-Run the latest release:
+Run the latest release with [uv](https://docs.astral.sh/uv/getting-started/installation/)
+on Windows, Linux or macOS:
 
 ```sh
 uvx --isolated --refresh --from https://github.com/yb-yu/steam-game-recording-exporter/releases/latest/download/steam-game-recording-exporter.tar.gz steamexporter
 ```
 
-uv manages Python and dependencies; no cloning or unpacking is needed.
-`--isolated --refresh` checks for the latest release even if an older version is
-installed or cached. This URL becomes available after the first release.
-
-For a shorter command on repeated use:
-
-```sh
-uv tool install --refresh https://github.com/yb-yu/steam-game-recording-exporter/releases/latest/download/steam-game-recording-exporter.tar.gz
-steamexporter
-```
-
-Repeat the install command with `--reinstall` to update.
+uv manages Python and dependencies. The download URL becomes available after
+the first GitHub release.
 
 ## Usage
 
 Run with no options to choose recordings, games and an output folder from the
 menu. Use arrow keys and Enter to select, `Esc` to go back, and `Ctrl+C` to cancel.
-The menu needs a real terminal; use PowerShell or Windows Terminal on Windows.
+Use an interactive terminal for the menu.
 
 - Choose background recordings (Steam's rolling history), saved clips, or both.
 - Enable game folders to group exports by game. This is off by default each run.
@@ -49,14 +33,8 @@ The menu needs a real terminal; use PowerShell or Windows Terminal on Windows.
 - Active background recordings are skipped. Stop the game and wait up to a
   minute before trying again. Saved clips are unaffected.
 
-For scripts or non-interactive use, append options to the quick-start command.
-After installing, for example:
-
-```sh
-steamexporter --process-all --group-by-game --output ~/Videos
-```
-
-See `steamexporter --help` for all options.
+For non-interactive use, append options to the command above, such as
+`--process-all --group-by-game --output ~/Videos`. Append `--help` for all options.
 
 ## Logs and disk space
 

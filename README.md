@@ -90,24 +90,6 @@ CLI without a source checkout.
 Use the Git-ignored `scratchpad/` for local experiments and `tests/` for
 regression tests.
 
-## Releasing
-
-1. Update the version in `pyproject.toml` and `steamexporter.py`, then run `uv lock`.
-2. Merge into `main` after CI passes.
-3. Push a matching stable version tag, for example:
-
-   ```sh
-   git switch main
-   git pull --ff-only
-   git tag -a v1.2.0 -m "Release v1.2.0"
-   git push origin v1.2.0
-   ```
-
-Tag pushes rerun tests and package checks before publishing a GitHub release
-with generated notes, a commit link, and wheel/source archives. A fixed-name
-source archive supports the `latest` download URL. Branch and PR runs only
-validate packages. For corrections, publish a new version.
-
 ## License
 
 MIT License

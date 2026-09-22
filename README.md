@@ -18,11 +18,10 @@ Run the latest release with [uv](https://docs.astral.sh/uv/getting-started/insta
 on Windows, Linux or macOS:
 
 ```sh
-uvx --isolated --refresh --from https://github.com/yb-yu/steam-game-recording-exporter/releases/latest/download/steam-game-recording-exporter.tar.gz steamexporter
+uvx --from steam-game-recording-exporter@latest steamexporter
 ```
 
-uv manages Python and dependencies. The download URL becomes available after
-the first GitHub release.
+uv manages Python and dependencies. Available after the first PyPI release.
 
 ## Interactive mode
 

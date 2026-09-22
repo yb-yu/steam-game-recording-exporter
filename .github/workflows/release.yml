@@ -1,6 +1,6 @@
 name: Release
 
-# To release: update versions in pyproject.toml and steamexporter.py, run uv lock,
+# To release: update the version in pyproject.toml, run uv lock,
 # and merge into main after CI passes. Push a matching vMAJOR.MINOR.PATCH tag
 # from main; all checks must pass before publishing. Use a new version for fixes.
 

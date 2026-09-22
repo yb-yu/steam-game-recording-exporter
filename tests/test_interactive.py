@@ -22,7 +22,7 @@ class InteractiveSessionTests(unittest.TestCase):
     @patch("steamexporter.questionary.select", return_value=object())
     @patch(
         "steamexporter._ask",
-        side_effect=["export", "all", "all", "all", "output", 2, False, True],
+        side_effect=["export", "all", "all", "all", "output", True, 2, False, True],
     )
     def test_all_games_reaches_export_with_integer_worker_default(
         self, ask, select, path, confirm, run_export
@@ -31,7 +31,7 @@ class InteractiveSessionTests(unittest.TestCase):
             "clip_10_20260731_120000",
             "clip_20_20260731_120001",
         ]
-        exporter = Mock(max_workers=2)
+        exporter = Mock(max_workers=2, group_by_game=False)
         exporter.get_clip_folders.return_value = clips
         exporter.get_game_name.side_effect = lambda game_id: f"Game {game_id}"
 
@@ -50,6 +50,8 @@ class InteractiveSessionTests(unittest.TestCase):
         self.assertIn("HDD sources", select.call_args_list[-1].kwargs["choices"][0].description)
         self.assertEqual(select.call_args_list[-1].kwargs["default"], 2)
         exporter.save_preferences.assert_called_once_with(output, 2)
+        self.assertTrue(exporter.group_by_game)
+        self.assertFalse(confirm.call_args_list[0].kwargs["default"])
         run_export.assert_called_once_with(exporter, clips, output, False, True)
 
     @patch("steamexporter.run_export", return_value=0)
@@ -58,14 +60,14 @@ class InteractiveSessionTests(unittest.TestCase):
     @patch("steamexporter.questionary.select", return_value=object())
     @patch(
         "steamexporter._ask",
-        side_effect=["export", "background", "all", "output", 1,
+        side_effect=["export", "background", "all", "output", False, 1,
                      steamexporter._BACK, 2, False, True],
     )
     def test_back_from_delete_returns_to_worker_screen(
         self, ask, select, path, confirm, run_export
     ):
         clips = ["clip_10_20260731_120000"]
-        exporter = Mock(max_workers=1)
+        exporter = Mock(max_workers=1, group_by_game=False)
         exporter.get_clip_folders.return_value = clips
 
         result = steamexporter.interactive_session(
@@ -80,6 +82,35 @@ class InteractiveSessionTests(unittest.TestCase):
         self.assertEqual(len(worker_prompts), 2)
         run_export.assert_called_once_with(
             exporter, clips, os.path.abspath("output"), False, True
+        )
+
+    @patch("steamexporter.run_export", return_value=0)
+    @patch("steamexporter.questionary.confirm", return_value=object())
+    @patch("steamexporter.questionary.path", return_value=object())
+    @patch("steamexporter.questionary.select", return_value=object())
+    @patch(
+        "steamexporter._ask",
+        side_effect=["export", "background", "all", "first-output",
+                     steamexporter._BACK, "second-output", True,
+                     steamexporter._BACK, False, 2, False, True],
+    )
+    def test_back_navigation_can_change_output_and_grouping(
+        self, ask, select, path, confirm, run_export
+    ):
+        clips = ["clip_10_20260731_120000"]
+        exporter = Mock(max_workers=2, group_by_game=True)
+        exporter.get_clip_folders.return_value = clips
+
+        result = steamexporter.interactive_session(
+            exporter, "userdata", "default-output", show_progress=True
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(path.call_count, 2)
+        self.assertFalse(exporter.group_by_game)
+        self.assertTrue(confirm.call_args_list[0].kwargs["default"])
+        run_export.assert_called_once_with(
+            exporter, clips, os.path.abspath("second-output"), False, True
         )
 
 
@@ -195,6 +226,7 @@ class ActiveRecordingTests(unittest.TestCase):
         )
         self.exporter.logger = Mock()
         self.exporter.max_workers = 2
+        self.exporter.group_by_game = False
 
     @staticmethod
     def make_recording(root, name, active=False):
@@ -275,9 +307,7 @@ class ActiveRecordingTests(unittest.TestCase):
 
             self.assertIsNone(success)
             self.assertIn("changed while FFmpeg was reading", message)
-            ffmpeg_command = self.exporter._run_ffmpeg.call_args.args[0]
-            self.assertTrue(ffmpeg_command[ffmpeg_command.index('-i') + 1].startswith('concatf:'))
-            self.assertFalse(os.path.exists(os.path.join(output, ".temp")))
+            self.assertFalse(any(name.startswith(".temp") for name in os.listdir(output)))
 
     def test_multi_session_recording_keeps_concat_fallback(self):
         with tempfile.TemporaryDirectory() as temp:

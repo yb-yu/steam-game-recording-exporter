@@ -119,15 +119,16 @@ class SteamGameRecordingExporter:
         ('mux', 0.30),
     )
 
-    # A clip with a single session skips both concat passes and muxes the merged
-    # streams directly, so its progress only has two phases.
+    # A single session skips the FFmpeg concat passes after merging its chunks.
     SINGLE_SESSION_WEIGHTS = (
         ('merge', 0.45),
         ('mux', 0.55),
     )
 
-    def __init__(self, max_workers: int = None, verbose: bool = False):
+    def __init__(self, max_workers: int = None, verbose: bool = False,
+                 group_by_game: bool = False):
         self.max_workers = max_workers or min(6, max(2, (os.cpu_count() or 1) // 2))
+        self.group_by_game = group_by_game
         self.game_ids = {}
         self.settings = {}
         self.setup_logging()
@@ -149,7 +150,7 @@ class SteamGameRecordingExporter:
 
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s: %(message)s'))
+        file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s [%(threadName)s]: %(message)s'))
 
         # RichHandler writes through the shared console, so log lines scroll above
         # the live progress display instead of tearing through it.
@@ -162,6 +163,18 @@ class SteamGameRecordingExporter:
         self.logger = logging.getLogger(__name__)
         self.log_file = log_file
         self._console_handler = console_handler
+        self.logger.debug("Runtime: exporter=%s python=%s os=%s imageio-ffmpeg=%s",
+                          __version__, platform.python_version(), platform.platform(), iio.__version__)
+        try:
+            import resource
+        except ImportError:
+            self.logger.debug("Open-file limit: unavailable on this platform")
+        else:
+            self.logger.debug("Open-file limit (soft, hard): %s", resource.getrlimit(resource.RLIMIT_NOFILE))
+        try:
+            self.logger.debug("FFmpeg executable=%s version=%s", iio.get_ffmpeg_exe(), iio.get_ffmpeg_version())
+        except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+            self.logger.debug("Could not query FFmpeg version: %s", e)
 
     def set_console_log_level(self, level: int):
         """Adjust how much reaches the console; the log file always keeps everything."""
@@ -481,6 +494,7 @@ class SteamGameRecordingExporter:
         """
         # `-progress pipe:1` must precede the output path.
         full_cmd = cmd[:-1] + ['-progress', 'pipe:1', '-nostats', '-loglevel', 'error', cmd[-1]]
+        self.logger.debug("FFmpeg command: %r", full_cmd)
 
         proc = subprocess.Popen(
             full_cmd,
@@ -525,6 +539,8 @@ class SteamGameRecordingExporter:
             proc.wait()
             stderr_thread.join(timeout=5)
 
+        self.logger.debug("FFmpeg exit=%s output=%s stderr=%s",
+                          proc.returncode, cmd[-1], ''.join(stderr_parts).strip())
         if proc.returncode != 0:
             raise subprocess.CalledProcessError(
                 proc.returncode, full_cmd, stderr=''.join(stderr_parts)
@@ -730,7 +746,7 @@ class SteamGameRecordingExporter:
         # Windows invalid characters: < > : " | ? * \ /
         # Also replace spaces and other problematic characters
         invalid_chars = '<>:"|?*\\/ '
-        sanitized = filename
+        sanitized = re.sub(r'[\x00-\x1f]', '_', filename)
         for char in invalid_chars:
             sanitized = sanitized.replace(char, '_')
 
@@ -758,13 +774,15 @@ class SteamGameRecordingExporter:
 
         return unique_filename
 
-    def get_expected_output_filename(self, clip_folder: str, output_dir: str) -> str:
+    def get_expected_output_filename(self, clip_folder: str, output_dir: str,
+                                     group_by_game: Optional[bool] = None) -> str:
         """
         Get the expected output filename for a clip folder.
 
         Args:
             clip_folder: Path to the Steam clip folder
             output_dir: Output directory where MP4 would be saved
+            group_by_game: Override the selected layout when looking for existing exports
 
         Returns:
             str: Expected output file path
@@ -779,7 +797,16 @@ class SteamGameRecordingExporter:
         game_name = self.get_game_name(game_id)
 
         # Sanitize game name to match what would be saved
-        base_filename = f"{self.sanitize_filename(game_name)}_{formatted_date}"
+        base_filename = self.sanitize_filename(f"{game_name}_{formatted_date}")
+        if group_by_game is None:
+            group_by_game = self.group_by_game
+        if group_by_game:
+            # A bare directory name also needs to avoid dots and Windows devices.
+            game_folder = self.sanitize_filename(game_name).rstrip('. ')
+            if not game_folder or re.match(r'^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)',
+                                           game_folder, re.IGNORECASE):
+                game_folder = f"Game_{self.sanitize_filename(game_id)}"
+            output_dir = os.path.join(output_dir, game_folder)
         # Get the exact filename (without checking for uniqueness)
         return os.path.join(output_dir, f"{base_filename}.mp4")
 
@@ -794,28 +821,30 @@ class SteamGameRecordingExporter:
         Returns:
             Optional[str]: Path to existing MP4 file if found, None otherwise
         """
-        expected_file = self.get_expected_output_filename(clip_folder, output_dir)
+        # Check only the selected layout and its counterpart, never the whole tree.
+        # Switching layouts must not re-export clips or hide them from cleanup.
+        for grouped in (self.group_by_game, not self.group_by_game):
+            expected_file = self.get_expected_output_filename(clip_folder, output_dir, grouped)
+            if os.path.isfile(expected_file):
+                return expected_file
 
-        # Check exact match
-        if os.path.exists(expected_file):
-            return expected_file
+            # Check numbered variations (e.g., filename_1.mp4, filename_2.mp4).
+            base_name, ext = os.path.splitext(expected_file)
+            numbered = glob.iglob(f"{glob.escape(base_name)}_*{ext}")
+            suffix_re = re.compile(re.escape(base_name) + r'_(\d+)' + re.escape(ext) + r'$')
 
-        # Check for numbered variations (e.g., filename_1.mp4, filename_2.mp4).
-        # One glob beats stat-ing every candidate name in turn.
-        base_name, ext = os.path.splitext(expected_file)
-        numbered = glob.glob(f"{glob.escape(base_name)}_*{ext}")
-        suffix_re = re.compile(re.escape(base_name) + r'_(\d+)' + re.escape(ext) + r'$')
+            best = None
+            best_index = None
+            for path in numbered:
+                match = suffix_re.match(path)
+                if match and os.path.isfile(path):
+                    index = int(match.group(1))
+                    if best_index is None or index < best_index:
+                        best, best_index = path, index
+            if best is not None:
+                return best
 
-        best = None
-        best_index = None
-        for path in numbered:
-            match = suffix_re.match(path)
-            if match:
-                index = int(match.group(1))
-                if best_index is None or index < best_index:
-                    best, best_index = path, index
-
-        return best
+        return None
 
     def delete_source_folder(self, clip_folder: str) -> bool:
         """Safely delete source clip folder after successful conversion"""
@@ -908,8 +937,9 @@ class SteamGameRecordingExporter:
 
             duration = self.get_clip_duration(session_mpd_files)
 
-            temp_dir = os.path.join(output_dir, '.temp')
-            os.makedirs(temp_dir, exist_ok=True)
+            os.makedirs(output_dir, exist_ok=True)
+            # Each clip owns its directory, so cleanup cannot race another worker.
+            temp_dir = tempfile.mkdtemp(prefix='.temp-', dir=output_dir)
 
             temp_video_paths = []
             temp_audio_paths = []
@@ -963,51 +993,49 @@ class SteamGameRecordingExporter:
                         total_bytes += sum(size for _, size in files)
                         stream_sources.append((stream_index, files))
 
+                    self.logger.debug(
+                        "Clip=%s session=%s video_chunks=%d audio_chunks=%d input_files=%d mode=sequential",
+                        clip_folder, session_mpd, len(chunks[0]), len(chunks[1]),
+                        len(chunks[0]) + len(chunks[1]) + 2,
+                    )
+
+                self.logger.debug("Clip=%s sessions=%d duration=%s input_bytes=%d",
+                                  clip_folder, len(session_mpd_files), duration, total_bytes)
                 if len(session_mpd_files) == 1:
-                    # FFmpeg can read the fragments as one logical stream. This avoids
-                    # writing full-size intermediate video/audio files and reading them back.
                     use_single_session_weights()
-                    direct_sources = {}
-                    for stream_index, files in stream_sources:
-                        source_list = tempfile.NamedTemporaryFile(
-                            mode='w', encoding='utf-8', newline='\n', delete=False,
-                            suffix='.txt', dir=temp_dir,
-                        )
-                        temp_files_to_cleanup.append(source_list.name)
-                        with source_list as f:
-                            for path, _size in files:
-                                absolute_path = os.path.abspath(path).replace(os.sep, '/')
-                                f.write(f"file:{absolute_path}\n")
-                        list_path = os.path.abspath(source_list.name).replace(os.sep, '/')
-                        direct_sources[stream_index] = f"concatf:{list_path}"
-                    video_source = direct_sources[0]
-                    audio_source = direct_sources[1]
-                    report('merge', 1.0, "Preparing fragments")
+
+                # Keep just one source chunk and one destination open, regardless
+                # of fragment count. concatf holds every fragment open at once.
+                copied_bytes = 0
+                for stream_index, files in stream_sources:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4", dir=temp_dir) as tmp_stream:
+                        temp_files_to_cleanup.append(tmp_stream.name)
+                        self.logger.debug("Clip=%s stream=%d merged_input=%s files=%d",
+                                          clip_folder, stream_index, tmp_stream.name, len(files))
+                        for path, _size in files:
+                            try:
+                                with open(path, 'rb') as f:
+                                    while True:
+                                        block = f.read(4 * 1024 * 1024)
+                                        if not block:
+                                            break
+                                        tmp_stream.write(block)
+                                        copied_bytes += len(block)
+                                        if total_bytes:
+                                            report('merge', copied_bytes / total_bytes, "Merging chunks")
+                            except FileNotFoundError:
+                                return None, f"Recording changed while being read; stop the game and rerun ({path})"
+
+                        if stream_index == 0:
+                            temp_video_paths.append(tmp_stream.name)
+                        else:
+                            temp_audio_paths.append(tmp_stream.name)
+
+                report('merge', 1.0, "Merging chunks")
+                if len(session_mpd_files) == 1:
+                    video_source = temp_video_paths[0]
+                    audio_source = temp_audio_paths[0]
                 else:
-                    copied_bytes = 0
-                    for stream_index, files in stream_sources:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4", dir=temp_dir) as tmp_stream:
-                            temp_files_to_cleanup.append(tmp_stream.name)
-                            for path, _size in files:
-                                try:
-                                    with open(path, 'rb') as f:
-                                        while True:
-                                            block = f.read(4 * 1024 * 1024)
-                                            if not block:
-                                                break
-                                            tmp_stream.write(block)
-                                            copied_bytes += len(block)
-                                            if total_bytes:
-                                                report('merge', copied_bytes / total_bytes, "Merging chunks")
-                                except FileNotFoundError:
-                                    return None, f"Recording changed while being read; stop the game and rerun ({path})"
-
-                            if stream_index == 0:
-                                temp_video_paths.append(tmp_stream.name)
-                            else:
-                                temp_audio_paths.append(tmp_stream.name)
-
-                    report('merge', 1.0, "Merging chunks")
                     video_list_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', dir=temp_dir)
                     audio_list_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', dir=temp_dir)
                     temp_files_to_cleanup.extend([video_list_file.name, audio_list_file.name])
@@ -1047,17 +1075,11 @@ class SteamGameRecordingExporter:
                     video_source = concatenated_video.name
                     audio_source = concatenated_audio.name
 
-                folder_basename = os.path.basename(clip_folder)
-                parts = folder_basename.split('_')
-
                 recorded_at = self.parse_recorded_datetime(clip_folder)
-                formatted_date = recorded_at.strftime("%Y-%m-%d_%H-%M-%S") if recorded_at else "UnknownDate"
-
-                game_id = parts[1] if len(parts) >= 2 else "Unknown"
-                game_name = self.get_game_name(game_id)
-
-                base_filename = f"{game_name}_{formatted_date}"
-                output_file = self.get_unique_filename(output_dir, f"{base_filename}.mp4")
+                expected_file = self.get_expected_output_filename(clip_folder, output_dir)
+                destination_dir = os.path.dirname(expected_file)
+                os.makedirs(destination_dir, exist_ok=True)
+                output_file = self.get_unique_filename(destination_dir, os.path.basename(expected_file))
                 pending_output = tempfile.NamedTemporaryFile(
                     delete=False, suffix=".mp4", dir=temp_dir
                 )
@@ -1083,7 +1105,6 @@ class SteamGameRecordingExporter:
 
                 cmd.append(pending_output.name)
 
-                self.logger.debug(f"FFmpeg command: {' '.join(cmd)}")
                 self._run_ffmpeg(cmd, duration, lambda frac: report('mux', frac, "Writing MP4"))
                 os.replace(pending_output.name, output_file)
 
@@ -1739,7 +1760,19 @@ def interactive_session(exporter: "SteamGameRecordingExporter", userdata_path: s
                 state = "pick" if scope == "pick" else "scope"
                 continue
             output_dir = os.path.abspath(os.path.expanduser(selected_output.strip()))
-            state = "dry_run" if action == "cleanup" else "workers"
+            state = "dry_run" if action == "cleanup" else "layout"
+            continue
+
+        if state == "layout":
+            group_by_game = _ask(questionary.confirm(
+                "Group exported videos into game folders?",
+                default=exporter.group_by_game, style=PROMPT_STYLE,
+            ), allow_back=True)
+            if group_by_game is _BACK:
+                state = "output"
+                continue
+            exporter.group_by_game = group_by_game
+            state = "workers"
             continue
 
         if state == "dry_run":
@@ -1774,7 +1807,7 @@ def interactive_session(exporter: "SteamGameRecordingExporter", userdata_path: s
                 style=PROMPT_STYLE,
             ), allow_back=True)
             if workers is _BACK:
-                state = "output"
+                state = "layout"
                 continue
             exporter.max_workers = int(workers)
             exporter.save_preferences(output_dir, exporter.max_workers)
@@ -1796,6 +1829,7 @@ def interactive_session(exporter: "SteamGameRecordingExporter", userdata_path: s
         proceed = _ask(questionary.confirm(
             f"Export {len(selected_clips)} clips to {output_dir} "
             f"with {exporter.max_workers} workers"
+            + (" in game folders" if exporter.group_by_game else "")
             + (" and delete sources" if delete_source else "") + "?",
             default=True, style=PROMPT_STYLE,
         ), allow_back=True)
@@ -1826,6 +1860,8 @@ def cli(
     output: Optional[str] = typer.Option(None, "--output", "-o",
                                          envvar="STEAM_EXPORTER_OUTPUT_DIR",
                                          help="Output directory for exported MP4s."),
+    group_by_game: bool = typer.Option(False, "--group-by-game",
+                                       help="Save new MP4s in a subfolder for each game."),
     workers: Optional[int] = typer.Option(None, "--workers", "-w", min=1,
                                           envvar="STEAM_EXPORTER_WORKERS",
                                           help="Parallel workers; HDD source: 1-2, SSD source: 2-4."),
@@ -1863,7 +1899,8 @@ def cli(
 
     print_banner()
 
-    exporter = SteamGameRecordingExporter(max_workers=workers, verbose=verbose)
+    exporter = SteamGameRecordingExporter(max_workers=workers, verbose=verbose,
+                                          group_by_game=group_by_game)
     show_progress = not no_progress and console.is_terminal
 
     # With no progress display, per-clip log lines are the only feedback there is.

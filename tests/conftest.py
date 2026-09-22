@@ -5,8 +5,11 @@ No binary fixtures are committed: fake Steam recording trees are built inside
 the bundled ffmpeg (see ``test_convert.py``).
 """
 
+import json
 import logging
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -123,6 +126,31 @@ def output_dir(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     return out
+
+
+@pytest.fixture
+def run_cli(tmp_path):
+    config = tmp_path / "clicfg" / "SteamGameRecordingExporter"
+    config.mkdir(parents=True)
+    (config / "GameIDs.json").write_text(
+        json.dumps({"570": "Dota 2", "730": "Counter-Strike 2"}), encoding="utf-8"
+    )
+
+    def run(*args, **kwargs):
+        env = dict(os.environ)
+        env.update({
+            "LOCALAPPDATA": str(tmp_path / "clicfg"),
+            "HOME": str(tmp_path / "clicfg"),
+            "USERPROFILE": str(tmp_path / "clicfg"),
+        })
+        env.update(kwargs.pop("env", {}))
+        return subprocess.run(
+            [sys.executable, str(Path(steamexporter.__file__)), *args],
+            capture_output=True, text=True,
+            encoding="utf-8", errors="replace", env=env, **kwargs
+        )
+
+    return run
 
 
 @pytest.fixture(scope="session")

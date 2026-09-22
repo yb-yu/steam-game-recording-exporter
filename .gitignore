@@ -156,3 +156,6 @@ SteamGameRecordingExporter.conf
 GameIDs.json
 
 .claude/
+
+# Local investigations and generated experiments
+/scratchpad/

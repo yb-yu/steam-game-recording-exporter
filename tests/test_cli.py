@@ -1,39 +1,6 @@
 """Small subprocess smoke tests for the public CLI."""
 
-import json
-import os
 import re
-import subprocess
-import sys
-from pathlib import Path
-
-import pytest
-
-SCRIPT = str(Path(__file__).resolve().parents[1] / "steamexporter.py")
-
-
-@pytest.fixture
-def run_cli(tmp_path):
-    config = tmp_path / "clicfg" / "SteamGameRecordingExporter"
-    config.mkdir(parents=True)
-    (config / "GameIDs.json").write_text(
-        json.dumps({"570": "Dota 2", "730": "Counter-Strike 2"}), encoding="utf-8"
-    )
-
-    def run(*args, **kwargs):
-        env = dict(os.environ)
-        env.update({
-            "LOCALAPPDATA": str(tmp_path / "clicfg"),
-            "HOME": str(tmp_path / "clicfg"),
-            "USERPROFILE": str(tmp_path / "clicfg"),
-        })
-        env.update(kwargs.pop("env", {}))
-        return subprocess.run(
-            [sys.executable, SCRIPT, *args], capture_output=True, text=True,
-            encoding="utf-8", errors="replace", env=env, **kwargs
-        )
-
-    return run
 
 
 def test_help_exits_cleanly(run_cli):
@@ -41,6 +8,7 @@ def test_help_exits_cleanly(run_cli):
     assert result.returncode == 0
     plain_output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout)
     assert "--list-clips" in plain_output
+    assert "--group-by-game" in plain_output
 
 
 def test_list_clips_prints_both_recording_types(run_cli, steam_tree):

@@ -1,8 +1,13 @@
 # Steam Game Recording Exporter
 
-Export Steam's fragmented game recordings to MP4 without re-encoding, preserving
-recording timestamps. Works on Windows, macOS and Linux with automatic Steam
-path detection and an interactive menu.
+Export Steam's fragmented game recordings (`.m4s` + `.mpd`) as standard MP4
+files without re-encoding. Choose recordings from an interactive terminal menu
+or use command-line options for batch exports.
+
+- Windows, Linux and macOS with automatic Steam path detection
+- Background recordings and saved clips, filtered by game or Steam account
+- Parallel exports with per-worker and overall progress
+- Original timestamps preserved, with optional folders per game
 
 Original recordings are kept unless you explicitly choose source deletion or
 cleanup mode.
@@ -19,22 +24,51 @@ uvx --isolated --refresh --from https://github.com/yb-yu/steam-game-recording-ex
 uv manages Python and dependencies. The download URL becomes available after
 the first GitHub release.
 
-## Usage
+## Interactive mode
 
-Run with no options to choose recordings, games and an output folder from the
-menu. Use arrow keys and Enter to select, `Esc` to go back, and `Ctrl+C` to cancel.
-Use an interactive terminal for the menu.
+Run the quick-start command with no extra options in an interactive terminal.
+Use arrow keys and Enter to select, `Esc` to go back, and `Ctrl+C` to cancel.
 
-- Choose background recordings (Steam's rolling history), saved clips, or both.
-- Enable game folders to group exports by game. This is off by default each run.
-  Existing exports are detected in either layout and are not moved.
-- The output folder and worker count are remembered; source deletion is not.
-  Start with 1–2 workers for an HDD or 2–4 for an SSD.
-- Active background recordings are skipped. Stop the game and wait up to a
-  minute before trying again. Saved clips are unaffected.
+```text
+? What do you want to do?
+❯ Export recordings to MP4
+  List recordings
+  Clean up sources of already-exported recordings
+  Show detected Steam paths
 
-For non-interactive use, append options to the command above, such as
-`--process-all --group-by-game --output ~/Videos`. Append `--help` for all options.
+? Which Steam recordings?
+❯ Background recordings (default)
+  Everything Steam has stored
+  Saved clips (manually created)
+
+? Which game?
+❯ All games (21 clips)
+  Counter-Strike 2 (14 clips)
+  Factorio (7 clips)
+
+? Which of the 21 clips? All of them
+? Output directory /home/you/Videos
+? Group exported videos into game folders? No
+? How many parallel workers? (HDD source: 1-2, SSD source: 2-4) 2
+? Delete the original Steam folders after a successful export? No
+? Export 21 clips to /home/you/Videos with 2 workers? Yes
+```
+
+The menu remembers the output folder and worker count. Game grouping and source
+deletion are off by default each run.
+
+## Command line mode
+
+Pass recording filters and export settings directly by appending options to the
+quick-start command:
+
+- `--list-clips` — list available recordings.
+- `--process-all --group-by-game --output ~/Videos` — export into game folders.
+- `--help` — show all options.
+
+Both modes detect existing exports in flat and game-folder layouts without
+moving them. Active background recordings are skipped; stop the game and wait
+up to a minute before retrying. Saved clips are unaffected.
 
 ## Logs and disk space
 

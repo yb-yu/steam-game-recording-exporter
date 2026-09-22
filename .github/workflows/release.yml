@@ -3,10 +3,6 @@ name: Release
 # To release: update the version in pyproject.toml, run uv lock,
 # and merge into main after CI passes. Push a matching vMAJOR.MINOR.PATCH tag
 # from main; all checks must pass before publishing. Use a new version for fixes.
-# PyPI setup: add a pending publisher at https://pypi.org/manage/account/publishing/
-# for project steam-game-recording-exporter, owner yb-yu, repository
-# steam-game-recording-exporter, workflow release.yml, environment pypi.
-# The GitHub pypi environment allows only v* tags.
 
 on:
   push:

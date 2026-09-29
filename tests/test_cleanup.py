@@ -105,3 +105,17 @@ def test_cleanup_finds_mixed_layouts_and_keeps_unexported_sources(
     assert [path for path, _ in results["skipped"]] == [str(pending)]
     assert flat.exists() == dry_run and grouped.exists() == dry_run
     assert pending.exists()
+
+
+def test_cleanup_keeps_an_active_background_recording(
+    exporter, named_games, steam_tree, output_dir
+):
+    recording = steam_tree.add_clip("bg_570_20250102_030405", kind="video")
+    (recording / "dash" / "chunk-stream0-00002.m4s.tmp").write_bytes(b"still recording")
+    (output_dir / "Dota_2_2025-01-02_03-04-05.mp4").write_bytes(b"x")
+
+    results = exporter.cleanup_existing_sources([str(recording)], str(output_dir))
+
+    assert results["deleted"] == []
+    assert [path for path, _ in results["skipped"]] == [str(recording)]
+    assert recording.exists()

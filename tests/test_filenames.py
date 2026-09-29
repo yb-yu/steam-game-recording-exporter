@@ -1,7 +1,8 @@
-"""Filename, timestamp and game-name cache behavior."""
+"""Filename, timestamp, game-name cache and saved preference behavior."""
 
 import json
 import os
+import platform
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,21 @@ def test_parses_valid_and_invalid_recording_dates(exporter):
     assert exporter.extract_datetime_from_folder_name("clip_570_notadate_xxxx") == datetime.min
 
 
+def test_recorded_time_sets_file_dates(exporter, tmp_path):
+    exported = tmp_path / "export.mp4"
+    exported.write_bytes(b"mp4")
+    recorded_at = datetime(2025, 1, 2, 3, 4, 5)
+
+    exporter.apply_recorded_timestamp(str(exported), recorded_at)
+
+    stat = exported.stat()
+    assert stat.st_mtime == recorded_at.timestamp()
+    if platform.system() in ("Windows", "Darwin"):
+        # Linux has no API for setting a file's creation time. Older Windows
+        # Pythons report it as st_ctime.
+        assert getattr(stat, "st_birthtime", stat.st_ctime) == recorded_at.timestamp()
+
+
 def test_expected_filename_matches_converter_naming(exporter, output_dir, monkeypatch):
     monkeypatch.setattr(
         type(exporter), "get_game_name", lambda self, game_id: "Half-Life: Alyx"
@@ -52,6 +68,20 @@ def test_game_name_cache_is_saved_and_reloaded(exporter, named_games, config_dir
     fresh = type(exporter)(max_workers=1)
     assert fresh.game_ids == {"570": "Dota 2"}
     assert fresh.group_by_game is False
+
+
+def test_preferences_keep_only_output_and_workers(exporter, config_dir, tmp_path):
+    output = tmp_path / "exports"
+    exporter.group_by_game = True
+
+    exporter.save_preferences(str(output), 3)
+
+    assert json.loads((config_dir / "settings.json").read_text(encoding="utf-8")) == {
+        "output_dir": str(output), "workers": 3
+    }
+    fresh = type(exporter)()
+    assert fresh.max_workers == 3 and fresh.group_by_game is False
+    assert type(exporter)(max_workers=1).max_workers == 1
 
 
 @pytest.mark.parametrize("game_name, folder", [

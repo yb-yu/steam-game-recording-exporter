@@ -104,6 +104,23 @@ def test_source_read_failure_keeps_source_and_removes_partial_streams(
     assert list(output_dir.iterdir()) == []
 
 
+def test_active_recording_is_neither_exported_nor_deleted(
+    exporter, named_games, steam_tree, output_dir, monkeypatch
+):
+    clip = steam_tree.add_clip("bg_570_20250102_030405", kind="video")
+    (clip / "dash" / "chunk-stream0-00002.m4s.tmp").write_bytes(b"still recording")
+    existing = output_dir / "Dota_2_2025-01-02_03-04-05.mp4"
+    existing.write_bytes(b"x")
+    monkeypatch.setattr(exporter, "_run_ffmpeg", Mock())
+
+    success, message = exporter.process_single_clip(str(clip), str(output_dir), delete_source=True)
+
+    assert success is None and "still writing" in message
+    exporter._run_ffmpeg.assert_not_called()
+    assert clip.exists()
+    assert list(output_dir.iterdir()) == [existing]
+
+
 def test_full_output_disk_removes_incomplete_stream_and_keeps_source(
     exporter, named_games, steam_tree, output_dir, monkeypatch
 ):

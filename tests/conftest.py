@@ -76,10 +76,11 @@ def no_network(monkeypatch):
 
 @pytest.fixture
 def config_dir(tmp_path, monkeypatch):
-    """Redirect the exporter's config/GameIDs location into tmp_path."""
+    """Redirect the exporter's config, GameIDs and settings locations into tmp_path."""
     cfg = tmp_path / "appconfig"
     monkeypatch.setattr(SteamGameRecordingExporter, "CONFIG_DIR", str(cfg))
     monkeypatch.setattr(SteamGameRecordingExporter, "GAME_IDS_FILE", str(cfg / "GameIDs.json"))
+    monkeypatch.setattr(SteamGameRecordingExporter, "SETTINGS_FILE", str(cfg / "settings.json"))
     return cfg
 
 

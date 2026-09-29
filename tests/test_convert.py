@@ -2,10 +2,11 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -65,6 +66,8 @@ def test_exports_a_playable_timestamped_mp4(
     assert datetime.fromtimestamp(produced.stat().st_mtime).replace(microsecond=0) == datetime(
         2025, 1, 2, 3, 4, 5
     )
+    recorded_utc = datetime(2025, 1, 2, 3, 4, 5).astimezone(timezone.utc)
+    assert re.search(rf"creation_time\s*:\s*{recorded_utc:%Y-%m-%dT%H:%M:%S}", probe.stderr)
     assert clip.exists()
     assert not list(output_dir.glob(".temp*"))
 

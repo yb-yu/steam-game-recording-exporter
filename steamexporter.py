@@ -565,6 +565,7 @@ class SteamGameRecordingExporter:
             List[str]: Sorted list of clip folder paths (newest first)
         """
         clip_folders = []
+        scanned_dirs = set()
 
         # Get all Steam IDs if none specified
         steam_ids = [steam_id] if steam_id else [
@@ -600,6 +601,11 @@ class SteamGameRecordingExporter:
 
             # Scan clip directories
             for clip_dir in clip_dirs:
+                # A custom path can name the default store, and accounts can share one.
+                real_dir = os.path.normcase(os.path.realpath(clip_dir))
+                if real_dir in scanned_dirs:
+                    continue
+                scanned_dirs.add(real_dir)
                 try:
                     for folder_entry in os.scandir(clip_dir):
                         if folder_entry.is_dir() and "_" in folder_entry.name:
@@ -1276,6 +1282,7 @@ class SteamGameRecordingExporter:
         )
 
         counters_lock = threading.Lock()
+        output_locks: dict[str, threading.Lock] = {}
         # Finished clips are counted as whole units and only in-flight clips
         # contribute fractions, so the overall bar never drifts off by rounding.
         finished_count = 0
@@ -1304,7 +1311,15 @@ class SteamGameRecordingExporter:
                     refresh_overall()
 
             try:
-                return self.process_single_clip(clip_folder, output_dir, delete_source, on_progress)
+                output_file = os.path.normcase(os.path.abspath(
+                    self.get_expected_output_filename(clip_folder, output_dir)
+                ))
+                with counters_lock:
+                    output_lock = output_locks.setdefault(output_file, threading.Lock())
+                # Recordings sharing an MP4 name export one at a time, so the later
+                # one finds the finished file instead of overwriting it.
+                with output_lock:
+                    return self.process_single_clip(clip_folder, output_dir, delete_source, on_progress)
             finally:
                 # Whatever happened, this clip is done occupying the bar.
                 with counters_lock:

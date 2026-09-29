@@ -81,3 +81,17 @@ def test_merges_default_and_custom_recording_paths(exporter, steam_tree, tmp_pat
         "bg_570_20250104_050607",
         "clip_570_20250102_030405",
     ]
+
+
+def test_recording_store_reached_through_several_settings_is_listed_once(exporter, steam_tree):
+    # A custom path can name Steam's default store, and accounts can share one.
+    default_store = os.path.join(steam_tree.user_dir(), "gamerecordings")
+    steam_tree.add_clip("clip_570_20250102_030405")
+    steam_tree.add_clip("bg_730_20250103_040506", kind="video")
+    steam_tree.set_custom_record_path(default_store)
+    steam_tree.set_custom_record_path(default_store, steam_id=OTHER_STEAM_ID)
+
+    assert sorted(names(exporter.get_clip_folders(str(steam_tree)))) == [
+        "bg_730_20250103_040506",
+        "clip_570_20250102_030405",
+    ]

@@ -4,6 +4,8 @@ import builtins
 from contextlib import contextmanager
 import errno
 from pathlib import Path
+import threading
+import time
 from unittest.mock import Mock
 
 import pytest
@@ -155,3 +157,45 @@ def test_finishing_another_clip_preserves_active_temp_directory(
     assert finished_second and first.exists() and second.exists()
     assert len(list(output_dir.glob("*.mp4"))) == 2
     assert not list(output_dir.glob(".temp*"))
+
+
+def test_recordings_sharing_an_output_name_are_exported_once(
+    exporter, named_games, steam_tree, output_dir, monkeypatch
+):
+    # Different recording folders can map to one MP4 name.
+    saved = str(steam_tree.add_clip("clip_570_20250102_030405"))
+    background = str(steam_tree.add_clip("bg_570_20250102_030405", kind="video"))
+    muxed = []
+
+    def slow_mux(command, *args):
+        muxed.append(command[-1])
+        time.sleep(0.5)  # Keep this export in flight while the other worker starts.
+        Path(command[-1]).write_bytes(b"mp4")
+
+    monkeypatch.setattr(exporter, "_run_ffmpeg", slow_mux)
+
+    results = exporter.process_clips_batch([saved, background], str(output_dir), show_progress=False)
+
+    assert sorted(results["successful"]) == sorted([saved, background])
+    assert len(muxed) == 1
+    assert [path.name for path in output_dir.glob("*.mp4")] == ["Dota_2_2025-01-02_03-04-05.mp4"]
+    assert not list(output_dir.glob(".temp*"))
+
+
+def test_recordings_with_different_output_names_export_in_parallel(
+    exporter, named_games, steam_tree, output_dir, monkeypatch
+):
+    first = str(steam_tree.add_clip("clip_570_20250102_030405"))
+    second = str(steam_tree.add_clip("clip_570_20250102_030406"))
+    both_muxing = threading.Barrier(2, timeout=5)
+
+    def mux_together(command, *args):
+        both_muxing.wait()  # Breaks if the exports run one after another.
+        Path(command[-1]).write_bytes(b"mp4")
+
+    monkeypatch.setattr(exporter, "_run_ffmpeg", mux_together)
+
+    results = exporter.process_clips_batch([first, second], str(output_dir), show_progress=False)
+
+    assert sorted(results["successful"]) == sorted([first, second])
+    assert len(list(output_dir.glob("*.mp4"))) == 2

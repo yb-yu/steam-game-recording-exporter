@@ -256,6 +256,7 @@ class ActiveRecordingTests(unittest.TestCase):
             saved_clip = self.make_recording(clips, "clip_10_20260731_120002")
             output = os.path.join(temp, "output")
             self.exporter.describe_clip = Mock(side_effect=os.path.basename)
+            self.exporter.get_game_name = Mock(return_value="Test Game")
             self.exporter.process_single_clip = Mock(return_value=(True, "done"))
 
             results = self.exporter.process_clips_batch(

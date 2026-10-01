@@ -1,5 +1,7 @@
 # Steam Game Recording Exporter
 
+[![PyPI](https://img.shields.io/pypi/v/steam-game-recording-exporter)](https://pypi.org/project/steam-game-recording-exporter/)
+
 Export Steam's fragmented game recordings (`.m4s` + `.mpd`) as standard MP4
 files without re-encoding. Choose recordings from an interactive terminal menu
 or use command-line options for batch exports.
@@ -14,16 +16,31 @@ cleanup mode.
 
 ## Quick start
 
-Install with [uv](https://docs.astral.sh/uv/getting-started/installation/)
-on Windows, Linux or macOS:
+We recommend [uv](https://docs.astral.sh/uv/getting-started/installation/), which also installs Python for you.
 
-```sh
-uv tool install steam-game-recording-exporter
-steamexporter
-```
+1. Install uv, unless you already have it:
 
-uv manages Python and dependencies. Available after the first PyPI release.
+   ```powershell
+   # Windows (PowerShell)
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   ```
+
+   ```sh
+   # macOS and Linux
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. Open a new terminal, then install and run the exporter:
+
+   ```sh
+   uv tool install steam-game-recording-exporter
+   steamexporter
+   ```
+
 Update with `uv tool upgrade steam-game-recording-exporter`.
+
+Already using Python 3.11+? `pipx install steam-game-recording-exporter` or
+`pip install steam-game-recording-exporter` also works.
 
 ## Interactive mode
 
@@ -86,7 +103,7 @@ Logs include runtime versions, fragment counts and FFmpeg diagnostics:
 
 ## Development
 
-Requires Python 3.9+; uv can install it automatically.
+Requires Python 3.11+; uv can install it automatically.
 
 ```sh
 git clone https://github.com/yb-yu/steam-game-recording-exporter.git
@@ -97,7 +114,7 @@ uv run pytest -q
 uv build
 ```
 
-CI tests Python 3.9 and 3.14 on Linux, and 3.14 on macOS and Windows, including
+CI tests Python 3.11 and 3.14 on Linux, and 3.14 on macOS and Windows, including
 large recordings, concurrent exports and cleanup. Package checks run the built
 CLI without a source checkout.
 

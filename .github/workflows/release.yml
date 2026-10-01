@@ -72,7 +72,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            python: "3.9"
+            python: "3.11"
           - os: ubuntu-latest
             python: "3.14"
           - os: macos-latest

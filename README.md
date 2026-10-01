@@ -39,7 +39,7 @@ We recommend [uv](https://docs.astral.sh/uv/getting-started/installation/), whic
 
 Update with `uv tool upgrade steam-game-recording-exporter`.
 
-Already using Python 3.9+? `pipx install steam-game-recording-exporter` or
+Already using Python 3.11+? `pipx install steam-game-recording-exporter` or
 `pip install steam-game-recording-exporter` also works.
 
 ## Interactive mode
@@ -103,7 +103,7 @@ Logs include runtime versions, fragment counts and FFmpeg diagnostics:
 
 ## Development
 
-Requires Python 3.9+; uv can install it automatically.
+Requires Python 3.11+; uv can install it automatically.
 
 ```sh
 git clone https://github.com/yb-yu/steam-game-recording-exporter.git
@@ -114,7 +114,7 @@ uv run pytest -q
 uv build
 ```
 
-CI tests Python 3.9 and 3.14 on Linux, and 3.14 on macOS and Windows, including
+CI tests Python 3.11 and 3.14 on Linux, and 3.14 on macOS and Windows, including
 large recordings, concurrent exports and cleanup. Package checks run the built
 CLI without a source checkout.
 
